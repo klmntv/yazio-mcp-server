@@ -97,6 +97,8 @@ def register(mcp: FastMCP) -> None:
         Use this when the question is *what* was eaten rather than how much —
         for example before removing or correcting an entry, since each item
         comes back with the entry_id that untrack_item needs.
+        Product amounts are expressed in each item's base_unit. Preserve that
+        unit even for drinks: grams and millilitres are not interchangeable.
 
         Args:
             date: Day to read as YYYY-MM-DD. Defaults to today.
@@ -140,6 +142,7 @@ def register(mcp: FastMCP) -> None:
             if detail is not None:
                 entry["name"] = detail.get("name")
                 entry["producer"] = detail.get("producer")
+                entry["base_unit"] = detail.get("base_unit")
 
             meals.setdefault(slot or "snack", []).append(entry)
 
