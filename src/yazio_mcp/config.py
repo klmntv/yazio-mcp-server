@@ -8,6 +8,7 @@ own credentials never appear here; they arrive per request (see auth.py).
 """
 
 BASE_URL = "https://yzapi.yazio.com"
+APP_TIMEZONE = "Europe/Moscow"
 
 CLIENT_ID = "3_5rbw4kehpugw8ogsc8ck8oo4ogswgckcskc04gcg8kk8k48ssw"
 CLIENT_SECRET = "25gdtt1hvdi8gwowoww4oo88sgsw0oo04o0og0kkgwwks8k0k"

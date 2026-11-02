@@ -95,7 +95,11 @@ def register(mcp: FastMCP) -> None:
         if detail is None:
             raise ToolError(f"no product found with id {product_id}")
 
-        return round_floats(_shape_product(detail))
+        shaped = _shape_product(detail)
+        # These values are per gram/ml and must survive multiplication by a
+        # portion. Rounding 0.0248 g fat to 0.02 here loses 1.2 g in a 250 g drink.
+        return {**round_floats(shaped),
+                "nutrients_per_base_unit": shaped["nutrients_per_base_unit"]}
 
     @mcp.tool()
     async def get_suggested_products(

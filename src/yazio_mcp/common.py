@@ -2,15 +2,30 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date as Date
 from datetime import datetime as DateTime
 from datetime import timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from mcp.server.fastmcp.exceptions import ToolError
 from yazio_sdk.types import UNSET, Unset
 
+from . import config
 from .config import DAYTIMES
+
+
+def positive_number(value: float, label: str = "amount") -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ToolError(f"{label} must be a positive finite number")
+    if not math.isfinite(value) or value <= 0:
+        raise ToolError(f"{label} must be a positive finite number")
+    return float(value)
+
+
+def local_now():
+    return DateTime.now(ZoneInfo(config.APP_TIMEZONE))
 
 
 def resolve_date(value: str | None) -> str:
@@ -20,7 +35,7 @@ def resolve_date(value: str | None) -> str:
     model from having to know the current date to log a meal.
     """
     if value is None:
-        return Date.today().isoformat()
+        return local_now().date().isoformat()
 
     try:
         return Date.fromisoformat(value).isoformat()
@@ -40,7 +55,7 @@ def resolve_timestamp(value: str | None) -> str:
     later renders it in, without pretending to a precision we do not have.
     """
     day = Date.fromisoformat(resolve_date(value))
-    now = DateTime.now()
+    now = local_now()
 
     if day == now.date():
         moment = now

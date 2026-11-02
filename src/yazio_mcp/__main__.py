@@ -10,6 +10,7 @@ credentials.
 from __future__ import annotations
 
 import argparse
+import sys
 
 import uvicorn
 
@@ -17,6 +18,13 @@ from .server import build_app
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in {
+        "serve", "login", "import-session", "status", "logout",
+    }:
+        from .cli import main as local_main
+
+        local_main()
+        return
     parser = argparse.ArgumentParser(prog="yazio-mcp", description=__doc__)
     parser.add_argument(
         "--host",

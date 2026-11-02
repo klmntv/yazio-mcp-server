@@ -1,5 +1,11 @@
 # Live YAZIO account credentials. Never commit.
 .env
+.local/
+/local/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+session.json
 
 # Python
 __pycache__/

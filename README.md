@@ -1,5 +1,116 @@
 # yazio-mcp-server
 
+This personal fork adds a local login and native saved Meals to
+[yazio-community/yazio-mcp-server](https://github.com/yazio-community/yazio-mcp-server).
+It keeps the upstream recipe support and legacy HTTP transport.
+
+## Local setup
+
+Requires Python 3.10+ on macOS or Linux and [uv](https://docs.astral.sh/uv/).
+
+```sh
+uv sync --locked
+uv run --no-sync yazio-mcp --help
+```
+
+### Sign in with Apple
+
+Apple login uses the **official YAZIO website and Apple popup**. The helper
+captures the resulting YAZIO token response; it never collects an Apple password
+or saves the Apple identity token. The YAZIO account is verified before the
+session replaces any existing local login.
+
+Browser login requires BrowserOS and a Playwriter wrapper configured for direct
+CDP. Supply the explicit endpoint of the browser dedicated to this task; the
+helper does not discover or connect to ordinary Chrome automatically.
+
+```sh
+uv run --no-sync yazio-mcp login --method apple \
+  --playwriter /absolute/path/to/playwriter-wrapper \
+  --cdp-endpoint http://127.0.0.1:PORT \
+  --show-browser
+```
+
+The helper creates its own background tab without tab groups. `--show-browser`
+explicitly shows that tab for human approval. It closes only its own login tab
+and popup, then deletes its own Playwriter session.
+
+If local DNS cannot resolve `www.yazio.com`, `--web-address PUBLIC_IP` optionally
+uses a separately resolved public address for that host only. TLS still verifies
+the `www.yazio.com` certificate; system DNS and browser settings are unchanged.
+The address is preserved for web-session renewal. No TLS bypass is supported.
+
+### Email/password or session import
+
+```sh
+# Interactive terminal prompt; the password is exchanged, never saved.
+uv run --no-sync yazio-mcp login
+
+# An existing session can be imported through stdin or a private 0600 file.
+uv run --no-sync yazio-mcp import-session --file /private/path/session.json
+
+uv run --no-sync yazio-mcp status
+uv run --no-sync yazio-mcp logout
+```
+
+Sessions default to `$XDG_STATE_HOME/yazio-mcp` or `~/.local/state/yazio-mcp`.
+Every command accepts `--state-dir`. Tokens are stored in a local, unencrypted
+`session.json` file with mode 0600 inside a 0700 directory. Passwords and tokens
+are not placed in MCP configuration or command arguments. Refresh rotation is
+persisted atomically and serialized across processes; a renewed session must
+still belong to the same account. Mobile and website tokens renew through their
+respective issuers.
+
+### Run in Codex or another local MCP client
+
+Use the absolute path to `.venv/bin/yazio-mcp` as the server command and `serve`
+as its argument. No authentication headers or secrets are needed in the client:
+
+```sh
+/absolute/path/to/repository/.venv/bin/yazio-mcp serve
+```
+
+This exposes only reads by default. Add `--allow-writes` when food recording is
+desired. `--timezone` defaults to `Europe/Moscow`; `--language` defaults to
+Russian. Pass the same `--state-dir` used at login if it differs from the default.
+
+## Saved Meals and recording guarantees
+
+- `list_saved_meals` reads existing saved food combinations from YAZIO's
+  `GET /v22/user/meals`; `get_saved_meal` resolves products and quantities.
+- `track_saved_meal` records one of those combinations, optionally scaled or
+  with individual items omitted or changed for this consumption. Overrides
+  require the version returned by `get_saved_meal`, so a template edited in the
+  app cannot silently change the meaning of an item index. The saved template
+  itself is not modified.
+- `track_product`, `track_recipe` and `track_saved_meal` require a stable
+  `request_id` for one user action. Retrying that action reconciles the original
+  plan. A new identical meal must use a new ID and is allowed.
+- Exact remote entry IDs and the interpreted date are saved in SQLite **before
+  POST**. Success requires rereading and matching the diary. A lost response,
+  process restart or partial result never triggers a blind second POST.
+- Results explicitly distinguish `committed`, `partial`, `uncertain` and
+  `failed`. `get_operation` returns the recorded result for the current account.
+  An unknown result can be reconciled by calling the same food tool with the
+  same arguments and request ID. Missing rows alone are not proof of failure.
+
+This is not a claim of an atomic remote meal transaction or API-level
+exactly-once delivery. Automatic completion of unconfirmed partial writes is
+intentionally omitted. The durable ledger covers the three food-recording tools;
+recipe creation/editing and the other legacy mutations retain upstream behavior.
+Native saved-Meal creation/editing is not implemented.
+
+Apple login, saved-Meal reads, product detail, diary and daily summary have been
+checked against a real account. Food mutations and token-renewal failure cases
+are tested with mocks; no live food-write acceptance is claimed.
+
+```sh
+uv run --no-sync ruff check src tests
+uv run --no-sync pytest -q
+```
+
+## Upstream HTTP server and reference
+
 An MCP server over the [YAZIO](https://www.yazio.com) food diary. Ask a model
 what you have eaten today, log a meal, build a recipe from tracked products.
 
