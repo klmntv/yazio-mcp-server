@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
+from .local_auth import SessionManager
 from .middleware import BasicAuthMiddleware
 from .tools import register_all
 
@@ -19,6 +22,12 @@ activity, and building recipes.
 Start with get_daily_summary for how a day is going, get_diary for what was
 actually eaten, and get_nutrition_range for trends across days. To log food,
 search_products first — tracking needs the product_id that search returns.
+
+Use list_saved_meals/get_saved_meal for existing YAZIO food combinations.
+Food writes require request_id: reuse it to reconcile a lost response, and use
+a new one only for a new user action, even when the foods are identical.
+Report success only for status=committed and verified=true. Partial/uncertain
+results must be described honestly; never resend them with a new request ID.
 
 Energy is in kilocalories, macros in grams, and vitamins and minerals in
 milligrams. Every nutrient block states its own units. Dates are YYYY-MM-DD and
@@ -32,7 +41,13 @@ _LOOPBACK_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
 _LOOPBACK_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
 
-def build_server(allowed_hosts: Sequence[str] | None = None) -> FastMCP:
+def build_server(
+    allowed_hosts: Sequence[str] | None = None,
+    *,
+    session_manager: SessionManager | None = None,
+    state_dir: Path | None = None,
+    read_only: bool = False,
+) -> FastMCP:
     """Create the FastMCP server with every tool registered.
 
     Runs stateless because each request authenticates on its own: there is no
@@ -58,13 +73,23 @@ def build_server(allowed_hosts: Sequence[str] | None = None) -> FastMCP:
             ],
         )
 
+    @asynccontextmanager
+    async def lifespan(_server):
+        yield {"session_manager": session_manager, "state_dir": state_dir}
+
     mcp = FastMCP(
         name="yazio",
         instructions=INSTRUCTIONS,
         stateless_http=True,
         transport_security=security,
+        lifespan=lifespan,
     )
     register_all(mcp)
+    if read_only:
+        # Registering only reads makes the restriction independent of model instructions.
+        for tool in list(mcp._tool_manager.list_tools()):
+            if not tool.name.startswith(("get_", "list_", "search_", "browse_")):
+                mcp.remove_tool(tool.name)
     return mcp
 
 

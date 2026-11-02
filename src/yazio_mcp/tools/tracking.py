@@ -7,30 +7,26 @@ exactly what was written without re-reading the diary.
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from yazio_sdk.api.diary import add_consumed_items as api_add_consumed_items
 from yazio_sdk.api.diary import delete_consumed_item as api_delete_consumed_item
 from yazio_sdk.api.diary import list_consumed_items as api_list_consumed_items
 from yazio_sdk.api.diary import set_water_intake as api_set_water_intake
 from yazio_sdk.models import (
-    ConsumedItems,
     ConsumedItemsDeletion,
-    ConsumedItemsProductsItem,
-    ConsumedRecipePortion,
     WaterIntakeEntry,
 )
 
 from ..common import (
     plain,
+    positive_number,
     resolve_date,
     resolve_daytime,
     resolve_timestamp,
-    round_floats,
 )
+from ..consumption import record_consumption
 from ..session import expect_ok, expect_written, yazio_client
 from .products import fetch_product
 
@@ -41,6 +37,7 @@ def register(mcp: FastMCP) -> None:
         ctx: Context,
         product_id: str,
         daytime: str,
+        request_id: str,
         amount: float | None = None,
         serving: str | None = None,
         serving_quantity: float | None = None,
@@ -56,6 +53,7 @@ def register(mcp: FastMCP) -> None:
 
         Args:
             product_id: The product's UUID, from search_products.
+            request_id: Stable ID for this user action. Reuse it after a timeout.
             daytime: One of breakfast, lunch, dinner, snack.
             amount: Portion size in the product's base unit. Optional if serving is given.
             serving: Named serving such as "can", "slice", "gram".
@@ -63,57 +61,41 @@ def register(mcp: FastMCP) -> None:
             date: Day to log against as YYYY-MM-DD. Defaults to today.
         """
         slot = resolve_daytime(daytime)
-        day = resolve_date(date)
 
         if amount is None and serving is None:
             raise ToolError("give either an amount, or a serving to log a portion of")
 
-        async with yazio_client(ctx) as client:
-            product = await fetch_product(client, product_id)
-            if product is None:
-                raise ToolError(f"no product found with id {product_id}")
+        if amount is not None:
+            positive_number(amount)
+        if serving_quantity is not None:
+            positive_number(serving_quantity, "serving_quantity")
 
-            quantity = (
-                serving_quantity
-                if serving_quantity is not None
-                else (1.0 if serving else None)
-            )
-            resolved_amount = _resolve_amount(product, amount, serving, quantity)
+        async def plan():
+            async with yazio_client(ctx) as client:
+                product = await fetch_product(client, product_id)
+                if product is None:
+                    raise ToolError(f"no product found with id {product_id}")
+                quantity = (
+                    serving_quantity if serving_quantity is not None else (1.0 if serving else None)
+                )
+                return [{"bucket": "products", "entry": {
+                    "product_id": product_id,
+                    "amount": _resolve_amount(product, amount, serving, quantity),
+                    **_serving_fields(serving, quantity),
+                }}]
 
-            entry = ConsumedItemsProductsItem(
-                id=str(uuid.uuid4()).upper(),
-                product_id=product_id,
-                amount=resolved_amount,
-                daytime=slot,
-                date=resolve_timestamp(date),
-                **_serving_fields(serving, quantity),
-            )
-
-            response = await api_add_consumed_items.asyncio_detailed(
-                client=client, body=ConsumedItems(products=[entry])
-            )
-            expect_written(ctx, response, f"log {product.get('name', product_id)}")
-
-        return round_floats(
-            {
-                "tracked": True,
-                "entry_id": entry.id,
-                "date": day,
-                "daytime": slot,
-                "product_id": product_id,
-                "name": product.get("name"),
-                "amount": resolved_amount,
-                "base_unit": product.get("base_unit"),
-                "serving": serving,
-                "serving_quantity": quantity,
-            }
-        )
+        return await record_consumption(ctx, request_id, {
+            "action": "track_product", "product_id": product_id, "daytime": slot,
+            "amount": amount, "serving": serving,
+            "serving_quantity": serving_quantity, "date": date,
+        }, plan, date, slot)
 
     @mcp.tool()
     async def track_recipe(
         ctx: Context,
         recipe_id: str,
         daytime: str,
+        request_id: str,
         portions: float = 1,
         date: str | None = None,
     ) -> dict[str, Any]:
@@ -121,41 +103,23 @@ def register(mcp: FastMCP) -> None:
 
         Args:
             recipe_id: The recipe's UUID, from list_my_recipes or get_recipe.
+            request_id: Stable ID for this user action. Reuse it after a timeout.
             daytime: One of breakfast, lunch, dinner, snack.
             portions: How many portions of the recipe were eaten.
             date: Day to log against as YYYY-MM-DD. Defaults to today.
         """
         slot = resolve_daytime(daytime)
-        day = resolve_date(date)
+        positive_number(portions, "portions")
 
-        if portions <= 0:
-            raise ToolError("portions must be greater than zero")
+        async def plan():
+            return [{"bucket": "recipe_portions", "entry": {
+                "recipe_id": recipe_id, "portion_count": float(portions),
+            }}]
 
-        entry_id = str(uuid.uuid4()).upper()
-        portion = ConsumedRecipePortion(
-            id=entry_id,
-            recipe_id=recipe_id,
-            portion_count=float(portions),
-            daytime=slot,
-            date=resolve_timestamp(date),
-        )
-
-        async with yazio_client(ctx) as client:
-            response = await api_add_consumed_items.asyncio_detailed(
-                client=client, body=ConsumedItems(recipe_portions=[portion])
-            )
-            expect_written(ctx, response, f"log {portions} portion(s) of a recipe")
-
-        return round_floats(
-            {
-                "tracked": True,
-                "entry_id": entry_id,
-                "date": day,
-                "daytime": slot,
-                "recipe_id": recipe_id,
-                "portions": portions,
-            }
-        )
+        return await record_consumption(ctx, request_id, {
+            "action": "track_recipe", "recipe_id": recipe_id, "daytime": slot,
+            "portions": float(portions), "date": date,
+        }, plan, date, slot)
 
     @mcp.tool()
     async def untrack_item(
@@ -296,7 +260,7 @@ def _resolve_amount(
     quantity is worse than asking the caller to pick a serving the product has.
     """
     if amount is not None:
-        return float(amount)
+        return positive_number(amount)
 
     servings = product.get("servings")
     if not isinstance(servings, list):
@@ -311,8 +275,10 @@ def _resolve_amount(
         if option.get("serving") == serving or option.get("name") == serving:
             base_amount = option.get("amount")
             if isinstance(base_amount, (int, float)):
-                return float(base_amount) * float(
-                    quantity if quantity is not None else 1.0
+                return positive_number(
+                    positive_number(base_amount, "serving amount") * positive_number(
+                        quantity if quantity is not None else 1.0, "serving_quantity"
+                    )
                 )
 
     available = sorted(

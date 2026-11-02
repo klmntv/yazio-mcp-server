@@ -13,6 +13,10 @@ from yazio_mcp.server import build_app, build_server
 # Every tool the server is expected to expose. Listed explicitly so that
 # accidentally dropping a registration fails the suite rather than going unnoticed.
 EXPECTED_TOOLS = {
+    "list_saved_meals",
+    "get_saved_meal",
+    "track_saved_meal",
+    "get_operation",
     "browse_recipes",
     "create_recipe",
     "delete_recipe",
@@ -53,6 +57,13 @@ async def test_every_tool_is_described():
     """Descriptions are how a model picks a tool, so none may be missing."""
     for tool in await build_server().list_tools():
         assert tool.description, f"{tool.name} has no description"
+
+
+@pytest.mark.asyncio
+async def test_read_only_mode_does_not_expose_mutations():
+    names = {tool.name for tool in await build_server(read_only=True).list_tools()}
+    assert {"list_saved_meals", "get_saved_meal", "get_diary"} <= names
+    assert not {"track_product", "track_recipe", "track_saved_meal", "untrack_item"} & names
 
 
 @pytest.mark.asyncio

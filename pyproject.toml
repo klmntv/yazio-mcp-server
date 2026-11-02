@@ -28,12 +28,14 @@ dependencies = [
   # Capped at the major: mcp 2.0 removed `mcp.server.fastmcp`, which is what
   # server.py is built on. Without the cap a fresh install resolves to 2.x and
   # fails at import — the dev shell hides this by pinning 1.27.
-  "mcp>=1.2,<2",
+  "mcp>=1.30,<2",
+  "httpx>=0.28,<1",
   "starlette>=0.37",
   "uvicorn>=0.30",
 ]
 
 [project.scripts]
+yazio-mcp = "yazio_mcp.cli:main"
 yazio-mcp-server = "yazio_mcp.__main__:main"
 
 [project.urls]
@@ -51,6 +53,7 @@ packages = ["src/yazio_mcp"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100

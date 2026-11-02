@@ -13,7 +13,7 @@ The prefix keeps the two apart, and says at every call site which is which.
 
 from mcp.server.fastmcp import FastMCP
 
-from . import body, diary, products, recipes, tracking
+from . import body, diary, meals, products, recipes, tracking
 
 
 def register_all(mcp: FastMCP) -> None:
@@ -23,3 +23,4 @@ def register_all(mcp: FastMCP) -> None:
     tracking.register(mcp)
     recipes.register(mcp)
     body.register(mcp)
+    meals.register(mcp)

@@ -26,6 +26,12 @@ def test_an_explicit_amount_is_taken_as_given():
     assert _resolve_amount(OLIVE_OIL, 250, None, None) == 250.0
 
 
+@pytest.mark.parametrize("amount", [-100, 0, float("nan"), float("inf")])
+def test_invalid_explicit_amounts_are_refused(amount):
+    with pytest.raises(ToolError, match="positive finite"):
+        _resolve_amount(OLIVE_OIL, amount, None, None)
+
+
 def test_an_explicit_amount_wins_over_a_serving():
     assert _resolve_amount(OLIVE_OIL, 250, "tablespoon", 1) == 250.0
 

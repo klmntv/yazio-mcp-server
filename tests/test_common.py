@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date as Date
+from datetime import datetime as DateTime
+from zoneinfo import ZoneInfo
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 from yazio_sdk.types import UNSET
 
+from yazio_mcp import config
 from yazio_mcp.common import (
     plain,
     resolve_date,
@@ -19,7 +21,7 @@ from yazio_mcp.common import (
 
 
 def test_omitted_date_means_today():
-    assert resolve_date(None) == Date.today().isoformat()
+    assert resolve_date(None) == DateTime.now(ZoneInfo(config.APP_TIMEZONE)).date().isoformat()
 
 
 def test_passes_through_an_iso_date():
@@ -45,7 +47,7 @@ def test_a_past_day_is_stamped_at_midday():
 
 def test_today_is_stamped_with_the_current_time():
     stamp = resolve_timestamp(None)
-    assert stamp.startswith(Date.today().isoformat())
+    assert stamp.startswith(DateTime.now(ZoneInfo(config.APP_TIMEZONE)).date().isoformat())
 
 
 def test_a_range_defaults_to_the_last_week():
@@ -55,7 +57,7 @@ def test_a_range_defaults_to_the_last_week():
 
 def test_a_range_ends_today_by_default():
     _, end = resolve_range("2026-01-01", None)
-    assert end == Date.today().isoformat()
+    assert end == DateTime.now(ZoneInfo(config.APP_TIMEZONE)).date().isoformat()
 
 
 def test_an_inverted_range_is_rejected():
